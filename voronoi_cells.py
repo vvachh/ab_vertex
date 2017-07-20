@@ -54,4 +54,4 @@ def random_voronoi_cells(n_cells):
             adjs[r0] += [r1]
             adjs[r1] += [r0]
     adjs = [list(set(i)) for i in adjs]
-    return locs,adjs
+    return [i*n_cells for i in locs],adjs

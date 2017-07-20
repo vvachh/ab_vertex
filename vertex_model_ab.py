@@ -190,12 +190,9 @@ class VertexModelApicoBasal:
                 newpos[i] -= planar_vm.boxsize
             elif newpos[i]<0:
                 newpos[i] += planar_vm.boxsize
-        planar_vm.v[idx] = newpos
-        planar_vm.edgelens[idx] = map(np.linalg.norm, planar_vm.get_edges(idx))
-        for i in planar_vm.faceadj[idx]:
-            planar_vm.faceareas[i] = planar_vm.get_facearea(i)
-            planar_vm.perims[i] = planar_vm.get_perim(i)
+        planar_vm.move_vertex(idx,newpos)
 
+        for i in planar_vm.faceadj[idx]:
             #update the lateral areas
             self.lateralareas[i] = self.get_lateralarea(i)
 
@@ -276,7 +273,7 @@ class VertexModelApicoBasal:
 
     def classify_rosettes(self,l_crit):
         apical_ros = self.apical_vm.find_rosettes(l_crit)
-        basal_ros = self.basal_vm.find_rosettes(selfl_crit)
+        basal_ros = self.basal_vm.find_rosettes(l_crit)
 
         shared_rosettes = []
         apical_rosettes = []

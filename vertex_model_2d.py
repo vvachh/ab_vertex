@@ -15,8 +15,8 @@ class VertexModel:
         self.A0 = A0
         self.p0 = p0
         self.r = r
-        self.edges = [np.linalg.norm,self.get_edges(i) for i in range(len(locs))]
-        self.edgelens = [map(np.linalg.norm,self.get_edges(i)) for i in range(len(locs))]
+        self.edges = [self.make_edges(i) for i in range(len(locs))]
+        self.edgelens = [map(np.linalg.norm,self.make_edges(i)) for i in range(len(locs))]
         
         self.faces = self.find_all_faces()
         self.faceadj = self.make_faceadj()
@@ -35,7 +35,7 @@ class VertexModel:
         # returns neighbors of the vertex idx: list of positions.
         adjacency = self.adj[idx]
         return map(lambda x: self.v[x][:],adjacency)
-    def get_edge(self,idx1,idx2):
+    def make_edge(self,idx1,idx2):
         # returns the vector which points in the direction of idx1 to idx2 and has length equal to the edge length.
         # Use to correct for periodic boundary conditions.
         loc1 = self.get_vert(idx1)
@@ -66,11 +66,21 @@ class VertexModel:
                     else:
                         loc2[0]+=self.boxsize
         return loc2-loc1
-    def get_edges(self,idx):
+    def make_edges(self,idx):
         # return all the edges from a single vertex
         loc = self.get_vert(idx)
         neighbors = self.get_adj(idx)
-        return map(lambda x: self.get_edge(idx,x), neighbors)
+        return map(lambda x: self.make_edge(idx,x), neighbors)
+
+    def get_edge(self,idx1,idx2):
+    	j = self.adj[idx1].index(idx2)
+    	if j == None:
+    		print 'edge doesn\'t exist'
+    		return
+    	return self.edges[idx1][j]
+    def get_edges(self,idx):
+    	edgecopy = [self.edges[idx][i].copy() for i in range(3)]
+    	return edgecopy
     def get_face(self,v1,v2,v3):
         #return the actual face index containing those three vertices in order
         facetest = self.find_face(v1,v2,v3)
@@ -252,17 +262,19 @@ class VertexModel:
     def cache_params(self):
         #return a list that includes all of the instance variables of this VertexModel
         edgelens_copy = [x[:] for x in self.edgelens]
+        edges_copy = [[y.copy() for y in x] for x in self.edges]
         faces_copy = [x[:] for x in self.faces]
         faceadj_copy = [x[:] for x in self.faceadj]
         faceareas_copy = self.faceareas[:]
         perims_copy = self.perims[:]
         adj_copy = [x[:] for x in self.adj]
         v_copy = [x.copy() for x in self.v]
-        return (v_copy,adj_copy,edgelens_copy,faces_copy,faceadj_copy,faceareas_copy,perims_copy)
+        return (v_copy,adj_copy,edgelens_copy,edges_copy, faces_copy,faceadj_copy,faceareas_copy,perims_copy)
     def load_params(self,params):
         # use the params output from self.cache_params()
-        v_copy,adj_copy,edgelens_copy,faces_copy,faceadj_copy,faceareas_copy,perims_copy = params
+        v_copy,adj_copy,edgelens_copy,edges_copy,faces_copy,faceadj_copy,faceareas_copy,perims_copy = params
         self.edgelens = edgelens_copy
+        self.edges = edges_copy
         self.faces = faces_copy
         self.faceadj = faceadj_copy
         self.faceareas = faceareas_copy
@@ -279,9 +291,11 @@ class VertexModel:
             elif newpos[i]<0:
                 newpos[i] += self.boxsize
         self.v[idx] = newpos
-        self.edgelens[idx] = map(np.linalg.norm, self.get_edges(idx))
+        self.edges[idx] = self.make_edges(idx)
+        self.edgelens[idx] = map(np.linalg.norm, self.edges[idx])
         for i in self.adj[idx]:
-            self.edgelens[i] = map(np.linalg.norm, self.get_edges(i))
+            self.edges[i] = self.make_edges(i)
+        self.edgelens[i] = map(np.linalg.norm, self.edges[i])
         for i in self.faceadj[idx]:
             self.faceareas[i] = self.get_facearea(i)
             self.perims[i] = self.get_perim(i)
@@ -396,9 +410,10 @@ class VertexModel:
             if step>0:
                 print 'ascending'
                 
-    def evaluate_t1_trans(self,gamma,i,k):
+    def evaluate_t1_trans(self,i,k):
         # carry out a passive T1 trans and do it if it decreases energy
         edgelens_copy = [x[:] for x in self.edgelens]
+        edges_copy = [[y.copy() for y in x] for x in self.edges]
         faces_copy = [x[:] for x in self.faces]
         faceadj_copy = [x[:] for x in self.faceadj]
         faceareas_copy = self.faceareas[:]
@@ -418,6 +433,7 @@ class VertexModel:
 
         if E_withtrans>E_notrans:
             self.edgelens = edgelens_copy
+            self.edges = edges_copy
             self.faces = faces_copy
             self.faceadj = faceadj_copy
             self.faceareas = faceareas_copy
@@ -438,7 +454,7 @@ class VertexModel:
                     if self.edgelens[i][j]<l_crit:
                         E_i = self.energy
                         k = self.adj[i][j]
-                        total_trans += self.evaluate_t1_trans(gamma,i,k)
+                        total_trans += self.evaluate_t1_trans(i,k)
             if step>0:
                 print 'ascending'
         print 'total T1 transitions:',total_trans
@@ -473,6 +489,7 @@ class VertexModel:
         for shift in range(4):
             if (n_sorted[-shift] in neighbors1) and (n_sorted[-shift+1] in neighbors1):
                 n_sorted = n_sorted[-shift:] + n_sorted[0:4-shift]
+                n_sorted = n_sorted[0:4]
                 break 
         v10 = n_sorted[0]
         v11 = n_sorted[1]
@@ -496,7 +513,13 @@ class VertexModel:
         self.adj[n_sorted[3]][self.adj[n_sorted[3]].index(idx2)] = idx1
 
         #update edgelens
-        
+        self.edges[idx1] = self.make_edges(idx1)
+        self.edges[idx2] = self.make_edges(idx2)
+        self.edges[n_sorted[0]] = self.make_edges(n_sorted[0])
+        self.edges[n_sorted[1]] = self.make_edges(n_sorted[1])
+        self.edges[n_sorted[2]] = self.make_edges(n_sorted[2])
+        self.edges[n_sorted[3]] = self.make_edges(n_sorted[3])
+
         self.edgelens[idx1] = map(np.linalg.norm,self.get_edges(idx1))
         self.edgelens[idx2] = map(np.linalg.norm,self.get_edges(idx2))
         self.edgelens[n_sorted[0]] = map(np.linalg.norm,self.get_edges(n_sorted[0]))
