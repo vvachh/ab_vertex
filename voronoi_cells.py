@@ -1,4 +1,4 @@
-from scipy.spatial import Voronoi, voronoi_plot_2d
+from scipy.spatial import Voronoi, voronoi_plot_2d, SphericalVoronoi
 import numpy as np
 
 def random_voronoi_cells(n_cells):
@@ -27,9 +27,6 @@ def random_voronoi_cells(n_cells):
 
     # print points3x3
     vor = Voronoi(points3x3)
-#     voronoi_plot_2d(vor)
-#     plt.plot([0,0,1,1,0],[0,1,1,0,0])
-#     plt.show()
     locs = [i for i in vor.vertices if ((i[0]>0 and i[0]<1) and (i[1]>0 and i[1]<1))]
     verts = [i  for i in range(len(vor.vertices)) if ((vor.vertices[i][0]>0 and vor.vertices[i][0]<1) and (vor.vertices[i][1]>0 and vor.vertices[i][1]<1))]
     # print np.array(locs)
@@ -55,3 +52,50 @@ def random_voronoi_cells(n_cells):
             adjs[r1] += [r0]
     adjs = [list(set(i)) for i in adjs]
     return [i*n_cells for i in locs],adjs
+
+def spherical_to_cartesian(sph, radius):
+    r,theta,phi = radius,sph[0],sph[1]
+    x = r*np.sin(theta)*np.cos(phi)
+    y = r*np.sin(theta)*np.sin(phi)
+    z = r*np.cos(theta)
+
+    return np.array([x,y,z])
+
+def cartesian_to_spherical(cart):
+        x,y,z = cart[0],cart[1],cart[2]
+
+        phi = np.arctan2(y,x)
+        theta = np.arctan2(np.sqrt(x*x+y*y),z)
+
+        return np.array([theta,phi])
+
+def random_voronoi_cells_sphere(n_cells,radius):
+    #pick random points on the sphere
+    thetas = np.linspace(0,np.pi,n_cells+1)
+    phis = np.linspace(0,2*np.pi,n_cells+1)
+    points = []
+    for i in range(n_cells):
+        for j in range(n_cells):
+            bt = thetas[i+1]
+            at = thetas[i]
+            bp = phis[j+1]
+            ap = phis[j]
+
+            points += [np.array([(bt-at)*np.random.random()+at,(bp-ap)*np.random.random()+ap])]
+    points_cart = map(lambda x: spherical_to_cartesian(x,radius), points)
+    print points_cart
+    # make a Voronoi tesselation of the sphere from the points you chose
+    sv = SphericalVoronoi(points_cart,radius=radius)
+    print sv
+    sv.sort_vertices_of_regions()
+    locs = list(sv.vertices)
+    adjs = [set() for i in locs]
+    regions = sv.regions
+    print regions
+    for region in regions:
+        for i in range(-1,len(region)-1):
+            adjs[region[i]].add(region[i+1])
+            adjs[region[i+1]].add(region[i])
+    print adjs
+    locs = map(cartesian_to_spherical,locs)
+    return locs,[list(k) for k in adjs]
