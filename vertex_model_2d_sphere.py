@@ -212,6 +212,7 @@ class VertexModelSphere:
         for i in range(len(face)):
             perim += self.get_edgelen(face[i-1],face[i])
         return perim
+    
     #moving vertices
     def move_vertex(self,idx,new_pos):
         self.v[idx] = new_pos
@@ -285,7 +286,6 @@ class VertexModelSphere:
                     best_phi = dphi
                 self.move_vertex_by(idx,-increment)
         self.move_vertex_by(idx,np.array([best_theta,best_phi]))
-
     def gradient_descent_step(self,thetastep,phistep):
         energy_before = self.total_mechanical_energy()
         for idx in range(len(self.v)):
@@ -293,7 +293,6 @@ class VertexModelSphere:
         self.energy = self.total_mechanical_energy()
         step = self.energy - energy_before
         return step
-
     def gradient_descent_no_t1(self,thetastep,phistep):
         step = -1
         while step!=0:
@@ -354,10 +353,47 @@ class VertexModelSphere:
         for i in range(len(self.v)):
             self.edges[i] = self.make_edges(i)
             
-            
-    #drawing things
-    
-    def draw_sphere(self,fig):
+    #measurements
+    def find_rosettes(self,l_crit):
+        #find groups of vertices all connected by edges of length <l_crit
+        #returns a list of (lists of vertices in a rosette)
+        rosettes = []
+        for i in range(len(self.v)):
+            for j in range(3):
+                if self.edgelens[i][j]<l_crit:
+                    k = self.adj[i][j]
+                    found_rosette = False
+                    for rosette in rosettes:
+                        if i in rosette:
+                            found_rosette = True
+                            if k not in rosette:
+                                rosette+= [k]
+                        elif k in rosette:
+                            found_rosette = True
+                            if i not in rosette:
+                                rosette+= [i]
+                    if not found_rosette:
+                        rosettes+= [[i,k]]
+        return rosettes
+    def rosette_degree(self,rosette):
+        #return the degree of the rosette: how many faces meet at the rosette?
+        faces = list(set(np.concatenate([np.concatenate([self.faces[faceidx] for faceidx in self.faceadj[vidx]]) for vidx in rosette])))
+        return len(faces)
+    def analyze_rosettes(self,l_crit,showplot=True):
+        rosettes = self.find_rosettes(l_crit)
+        degrees = [self.rosette_degree(ros) for ros in rosettes]
+        
+        if showplot:
+            hist, bins = np.histogram(degrees,bins='auto')
+            width = 0.7 * (bins[1] - bins[0])
+            center = (bins[:-1] + bins[1:]) / 2
+            plt.bar(center, hist, align='center', width=width)
+            plt.plot([self.radius/(self.radius+self.thickness), self.radius/(self.radius+self.thickness)], [0,max(hist)])
+            plt.show()
+        return rosettes,degrees
+
+    #drawing things    
+    def draw_sphere(self,fig,color=(0,0,1)):
         u = np.linspace(0, 2 * np.pi, 100)
         v = np.linspace(0, np.pi, 100)
         radius = self.radius
@@ -368,7 +404,7 @@ class VertexModelSphere:
         #for i in range(2):
         #    ax.plot_surface(x+random.randint(-5,5), y+random.randint(-5,5), z+random.randint(-5,5),  rstride=4, cstride=4, color='b', linewidth=0, alpha=0.5)
 
-        mlab.mesh(x, y, z,  color=(0,0,1),figure=fig,opacity=0.5)
+        mlab.mesh(x, y, z,  color=color,figure=fig,opacity=0.5)
     def draw_greatcirc(self,pos1,pos2,fig):
         #not really true: doesn't draw great circle arcs.
         pos1 = self.cartesian_to_spherical(pos1)
@@ -379,8 +415,11 @@ class VertexModelSphere:
         carts = np.array(map(self.spherical_to_cartesian, coords))
 
         mlab.plot3d(carts[:,0],carts[:,1],carts[:,2],figure=fig)
-    def draw_model(self):
-        fig = mlab.figure()
+    def draw_model(self,figi=None,color=(0,0,1)):
+        if figi==None:
+            fig = mlab.figure()
+        else:
+            fig = figi
         vtxs = np.array(self.v_cart)
         mlab.points3d(vtxs[:,0],vtxs[:,1],vtxs[:,2],scale_factor=0.05)
         for i in range(len(self.v)):
@@ -390,8 +429,9 @@ class VertexModelSphere:
                 mlab.plot3d([pt1[0],pt1[0]+j[0]],
                     [pt1[1],pt1[1]+j[1]],
                     [pt1[2],pt1[2]+j[2]],figure=fig,tube_radius=None)
-        self.draw_sphere(fig)
-        mlab.show()
+        self.draw_sphere(fig,color=color)
+        if figi==None:
+            mlab.show()
 
     #saving and loading models
     def save_to_file(self, filename):
