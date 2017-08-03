@@ -15,7 +15,7 @@ class VertexModelSphere:
 
     def __init__(self, locs, adjs, radius=1., p0=1., r=1.):
         self.v = [i.copy() for i in locs]
-        self.adj = [i[:] for i in adjs]
+        self.adj = [sorted(i[:]) for i in adjs]
         self.radius = radius
         self.v_cart = map(self.spherical_to_cartesian,self.v)
         self.A0 = 4.*pi*radius*radius/len(self.v)
@@ -170,6 +170,28 @@ class VertexModelSphere:
             return face[-1:0:-1]
     def get_face(self,fidx):
         return self.faces[fidx][:]
+    def get_face_which_contains(self,v1,v2,v3):
+        #return the actual face index containing those three vertices in order
+        facetest = self.find_face(v1,v2,v3)
+        for f in range(len(self.faces)):
+            if set(facetest)==set(self.faces[f]):
+                return f
+        print 'Not on the same face, I think'
+
+    def replace_part_of_face(self,faceidx,find,replace):
+        start = None
+        end = None
+        for i in range(len(self.faces[faceidx])):
+            if self.faces[faceidx][i]==find[0]:
+                start = i
+            elif self.faces[faceidx][i]==find[-1]:
+                end = i
+        if end<start:
+            newface = self.faces[faceidx][end+1:start]
+        else:
+            newface = self.faces[faceidx][end+1:]+self.faces[faceidx][:start]
+        newface += replace
+        self.faces[faceidx] = newface
 
     def find_all_faces(self):
         #goes along each edge to search for all the faces. 
@@ -241,6 +263,166 @@ class VertexModelSphere:
         for f in self.faceadj[idx]:
             self.faceareas[f] = self.find_facearea(f)
             self.perims[f] = self.make_perim(f)
+    def switch_vertices(self, idx1,idx2):
+        self.v[idx1],self.v[idx2] = self.v[idx2],self.v[idx1]
+        
+        self.adj[idx1],self.adj[idx2] = self.adj[idx2],self.adj[idx1]
+        self.adj[idx1][self.adj[idx1].index(idx1)] = idx2
+        self.adj[idx2][self.adj[idx2].index(idx2)] = idx1
+        self.adj[idx1], self.adj[idx2] = sorted(self.adj[idx1]), sorted(self.adj[idx2])
+        for i in self.adj[idx1]:
+            if i!=idx2:
+                self.adj[i][self.adj[i].index(idx2)] = idx1
+        for i in self.adj[idx2]:
+            if i!=idx1:
+                self.adj[i][self.adj[i].index(idx1)] = idx2
+
+        self.v_cart[idx1],self.v_cart[idx2] = self.v_cart[idx2],self.v_cart[idx1]
+        
+        self.edges[idx1] = self.make_edges(idx1)
+        self.edges[idx2] = self.make_edges(idx2)
+        for i in self.adj[idx1]:
+            self.edges[i] = self.make_edges(i)
+        for i in self.adj[idx2]:
+            self.edges[i] = self.make_edges(i)
+
+        self.edgelens[idx1] = self.make_edgelens(idx1)
+        self.edgelens[idx2] = self.make_edgelens(idx2)
+        for i in self.adj[idx1]:
+            self.edgelens[i] = self.make_edgelens(i)
+        for i in self.adj[idx2]:
+            self.edgelens[i] = self.make_edgelens(i)
+
+        self.faceadj[idx1],self.faceadj[idx2] = self.faceadj[idx2],self.faceadj[idx1]
+        
+        affected_faces = list(set(self.faceadj[idx1]+self.faceadj[idx2]))
+        for i in range(len(affected_faces)):
+            # print self.faces[affected_faces[i]]
+            f = self.faces[affected_faces[i]]
+            if (idx1 in f) and (idx2 in f):
+                #switch the order
+                # print 'both are here!'
+                i1 = f.index(idx1)
+                i2 = f.index(idx2)
+                # print idx1,'is at',i1,'and',idx2,'is at',i2
+                f[i1],f[i2] = idx2,idx1
+            elif idx2 in f:
+                f[f.index(idx2)] = idx1
+            elif idx1 in f:
+                f[f.index(idx1)] = idx2
+            else:
+                print 'huh?'
+            # print self.faces[affected_faces[i]]
+        
+
+    #T1 topological transitions
+    def t1_trans(self,idx1,idx2):
+        edge = self.get_edge(idx1,idx2)
+        loc1_cart = self.get_vert_cart(idx1)
+        loc1 = self.get_vert(idx1)
+        loc2 = self.get_vert(idx2)
+        loc_new = self.cartesian_to_spherical(loc1_cart+edge/2.)
+        
+        self.v[idx1] = loc_new.copy()
+        self.v[idx2] = loc_new.copy()
+        neighbors1 = [x for x in self.get_adj(idx1) if x!=idx2]
+        neighbors2 = [x for x in self.get_adj(idx2) if x!=idx1]
+        
+
+        
+        #order the neighbors clockwise:
+        n = neighbors1 + neighbors2
+        self.v[idx1] = loc_new.copy()
+        self.v[idx2] = loc_new.copy()
+        nlocs = [self.tangent_vec(idx1,i) for i in neighbors1] + [self.tangent_vec(idx2,i) for i in neighbors2]
+        self.v[idx1] = loc1
+        self.v[idx2] = loc2
+        nangs = [np.arctan2(i[1],i[0]) for i in nlocs]
+        sort_indices = sorted(range(len(nangs)),key = lambda x: nangs[x])
+        n_sorted = [n[x] for x in sort_indices]
+        nlocs_sorted = [nlocs[x] for x in sort_indices]
+        for shift in range(4):
+            if (n_sorted[-shift] in neighbors1) and (n_sorted[-shift+1] in neighbors1):
+                n_sorted = n_sorted[-shift:] + n_sorted[0:4-shift]
+                break 
+        v10 = n_sorted[0]
+        v11 = n_sorted[1]
+        v20 = n_sorted[2]
+        v21 = n_sorted[3]
+        #switch neighbors:
+        A = self.get_face_which_contains(n_sorted[0],idx1,n_sorted[1])
+        B = self.get_face_which_contains(idx2,idx1,n_sorted[1])
+        C = self.get_face_which_contains(idx1,idx2,n_sorted[3])
+        D = self.get_face_which_contains(n_sorted[2],idx2,n_sorted[3])
+
+        # print A,B,C,D
+        self.v[idx1] = loc_new.copy()
+        self.v[idx2] = loc_new.copy()
+        self.v_cart[idx1] = self.spherical_to_cartesian(loc_new)
+        self.v_cart[idx2] = self.spherical_to_cartesian(loc_new)
+        
+        #update adjacencies, enforcing that the entries of self.adj are sorted.
+        neighbors1 = sorted([idx2,n_sorted[3],n_sorted[0]])
+        neighbors2 = sorted([idx1,n_sorted[1],n_sorted[2]])
+        self.adj[idx1] = neighbors1
+        self.adj[idx2] = neighbors2
+
+        self.adj[n_sorted[1]][self.adj[n_sorted[1]].index(idx1)] = idx2
+        self.adj[n_sorted[1]] = sorted(self.adj[n_sorted[1]])
+
+        self.adj[n_sorted[3]][self.adj[n_sorted[3]].index(idx2)] = idx1
+        self.adj[n_sorted[3]] = sorted(self.adj[n_sorted[3]])
+
+        #update edges
+        self.edges[idx1] = self.make_edges(idx1)
+        self.edges[idx2] = self.make_edges(idx2)
+        self.edges[n_sorted[0]] = self.make_edges(n_sorted[0])
+        self.edges[n_sorted[1]] = self.make_edges(n_sorted[1])
+        self.edges[n_sorted[2]] = self.make_edges(n_sorted[2])
+        self.edges[n_sorted[3]] = self.make_edges(n_sorted[3])
+
+        #update edgelens
+        self.edgelens[idx1] = self.make_edgelens(idx1)
+        self.edgelens[idx2] = self.make_edgelens(idx2)
+        self.edgelens[n_sorted[0]] = self.make_edgelens(n_sorted[0])
+        self.edgelens[n_sorted[1]] = self.make_edgelens(n_sorted[1])
+        self.edgelens[n_sorted[2]] = self.make_edgelens(n_sorted[2])
+        self.edgelens[n_sorted[3]] = self.make_edgelens(n_sorted[3])
+        
+        #update faces and faceadj
+        self.replace_part_of_face(A,[v11,idx1,v10],[v11,idx2,idx1,v10])
+        self.replace_part_of_face(B, [v20,idx2,idx1,v11],[v20,idx2,v11])
+        #update locations
+        self.replace_part_of_face(C,[v10,idx1,idx2,v21],[v10,idx1,v21])
+        self.replace_part_of_face(D, [v21,idx2,v20],[v21,idx1,idx2,v20])
+        
+        #update faceadj
+        switchaforb(self.faceadj[idx1], B, D)
+        switchaforb(self.faceadj[idx2], C, A)
+        
+        #update faceareas
+        self.faceareas[A] = self.find_facearea(A)
+        self.faceareas[B] = self.find_facearea(B)
+        self.faceareas[C] = self.find_facearea(C)
+        self.faceareas[D] = self.find_facearea(D)
+
+        #update perims
+        self.perims[A] = self.make_perim(A)
+        self.perims[B] = self.make_perim(B)
+        self.perims[C] = self.make_perim(C)
+        self.perims[D] = self.make_perim(D)
+        
+        #return vectors pointing away from the junction
+        dis1 = np.cross(loc1_cart, edge)/2.
+        dis1 = dis1/norm(dis1)*norm(edge)/2.
+        dis2 = np.cross(loc1_cart, -edge)/2.
+        dis2 = dis2/norm(dis2)*norm(edge)/2.
+
+        self.move_vertex(idx1,self.cartesian_to_spherical(self.v_cart[idx1]+dis1))
+        self.move_vertex(idx2,self.cartesian_to_spherical(self.v_cart[idx2]+dis2))
+        
+        return A,B,C,D
+
 
     #mechanical energy
     def total_mechanical_energy(self):
@@ -299,6 +481,51 @@ class VertexModelSphere:
             step = self.gradient_descent_step(thetastep,phistep)
             print 'energy step:',step
         print 'done'
+
+    def evaluate_t1_trans(self,i,k):
+        # carry out a passive T1 trans and do it if it decreases energy
+        edgelens_copy = [x[:] for x in self.edgelens]
+        faces_copy = [x[:] for x in self.faces]
+        faceadj_copy = [x[:] for x in self.faceadj]
+        faceareas_copy = self.faceareas[:]
+        perims_copy = self.perims[:]
+        adj_copy = [x[:] for x in self.adj]
+        v_copy = [x.copy() for x in self.v]
+        v_cart_copy = [x.copy() for x in self.v_cart]
+        
+        E_notrans = self.total_mechanical_energy()
+
+        self.t1_trans(i,k)
+
+        E_withtrans = self.total_mechanical_energy()
+
+        if E_withtrans>E_notrans:
+            self.edgelens = edgelens_copy
+            self.faces = faces_copy
+            self.faceadj = faceadj_copy
+            self.faceareas = faceareas_copy
+            self.perims = perims_copy
+            self.adj = adj_copy
+            self.energy = E_notrans
+            self.v = v_copy
+            self.v_cart = v_cart_copy
+            return 0
+        self.energy = E_withtrans
+        return 1
+    def gradient_descent_with_t1(self, thetastep, phistep, l_crit):
+        step = -1
+        total_trans = 0
+        while step!=0:
+            step = self.gradient_descent_step(thetastep,phistep)
+            for i in range(len(self.v)):
+                for j in range(3):
+                    if self.edgelens[i][j]<l_crit:
+                        E_i = self.energy
+                        k = self.adj[i][j]
+                        total_trans += self.evaluate_t1_trans(i,k)
+            print 'energy step:',step
+        print 'done'
+        print 'total T1 transitions:',total_trans
 
     #spherical geometry things
     def rotate_wrt(self,idx1,idx2):
@@ -393,7 +620,7 @@ class VertexModelSphere:
         return rosettes,degrees
 
     #drawing things    
-    def draw_sphere(self,fig,color=(0,0,1)):
+    def draw_sphere(self,fig,color=(0,0,1), alpha=0.5):
         u = np.linspace(0, 2 * np.pi, 100)
         v = np.linspace(0, np.pi, 100)
         radius = self.radius
@@ -404,7 +631,7 @@ class VertexModelSphere:
         #for i in range(2):
         #    ax.plot_surface(x+random.randint(-5,5), y+random.randint(-5,5), z+random.randint(-5,5),  rstride=4, cstride=4, color='b', linewidth=0, alpha=0.5)
 
-        mlab.mesh(x, y, z,  color=color,figure=fig,opacity=0.5)
+        mlab.mesh(x, y, z,  color=color,figure=fig,opacity=alpha)
     def draw_greatcirc(self,pos1,pos2,fig):
         #not really true: doesn't draw great circle arcs.
         pos1 = self.cartesian_to_spherical(pos1)
@@ -415,7 +642,7 @@ class VertexModelSphere:
         carts = np.array(map(self.spherical_to_cartesian, coords))
 
         mlab.plot3d(carts[:,0],carts[:,1],carts[:,2],figure=fig)
-    def draw_model(self,figi=None,color=(0,0,1)):
+    def draw_model(self,figi=None,color=(0,0,1),alpha=0.5):
         if figi==None:
             fig = mlab.figure()
         else:
@@ -429,11 +656,36 @@ class VertexModelSphere:
                 mlab.plot3d([pt1[0],pt1[0]+j[0]],
                     [pt1[1],pt1[1]+j[1]],
                     [pt1[2],pt1[2]+j[2]],figure=fig,tube_radius=None)
-        self.draw_sphere(fig,color=color)
+        self.draw_sphere(fig,color=color, alpha=alpha)
         if figi==None:
             mlab.show()
 
     #saving and loading models
+    def cache_params(self):
+        edges_copy = [x[:] for x in self.edges]
+        edgelens_copy = [x[:] for x in self.edgelens]
+        faces_copy = [x[:] for x in self.faces]
+        faceadj_copy = [x[:] for x in self.faceadj]
+        faceareas_copy = self.faceareas[:]
+        perims_copy = self.perims[:]
+        adj_copy = [x[:] for x in self.adj]
+        v_copy = [x.copy() for x in self.v]
+        v_cart_copy = [x.copy() for x in self.v_cart]
+
+        return (edges_copy, edgelens_copy, faces_copy, faceadj_copy, faceareas_copy, perims_copy, adj_copy, v_copy, v_cart_copy)
+
+    def load_params(self, params):
+        (edges_copy, edgelens_copy, faces_copy, faceadj_copy, faceareas_copy, perims_copy, adj_copy, v_copy, v_cart_copy) = params
+        self.edges = edges_copy
+        self.edgelens = edgelens_copy
+        self.faces = faces_copy
+        self.faceadj = faceadj_copy
+        self.faceareas = faceareas_copy
+        self.perims = perims_copy
+        self.adj = adj_copy
+        self.v = v_copy
+        self.v_cart = v_cart_copy
+
     def save_to_file(self, filename):
         #pickle v, adjs, radius, p0, and r.
         #importantly, we're not pickling the actual VertexModel instance so that I can change object methods without messing everything up

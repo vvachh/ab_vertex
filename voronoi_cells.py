@@ -83,19 +83,19 @@ def random_voronoi_cells_sphere(n_cells,radius):
 
             points += [np.array([(bt-at)*np.random.random()+at,(bp-ap)*np.random.random()+ap])]
     points_cart = map(lambda x: spherical_to_cartesian(x,radius), points)
-    print points_cart
+    # print points_cart
     # make a Voronoi tesselation of the sphere from the points you chose
     sv = SphericalVoronoi(points_cart,radius=radius)
-    print sv
+    # print sv
     sv.sort_vertices_of_regions()
     locs = list(sv.vertices)
     adjs = [set() for i in locs]
     regions = sv.regions
-    print regions
+    # print regions
     for region in regions:
         for i in range(-1,len(region)-1):
             adjs[region[i]].add(region[i+1])
             adjs[region[i+1]].add(region[i])
-    print adjs
+    # print adjs
     locs = map(cartesian_to_spherical,locs)
     return locs,[list(k) for k in adjs]
